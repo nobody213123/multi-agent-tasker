@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSQAQ 盯盘系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', sans-serif; }
+    .card { background: #1e293b; border-radius: 12px; border: 1px solid #334155; }
+    .up { color: #ef4444; }   /* 涨 - 红 */
+    .down { color: #22c55e; } /* 跌 - 绿 */
+    .flat { color: #94a3b8; }
+    .glow-red { box-shadow: 0 0 20px rgba(239,68,68,0.15); }
+    .glow-green { box-shadow: 0 0 20px rgba(34,197,94,0.15); }
+    #searchInput:focus { outline: none; box-shadow: 0 0 0 2px #3b82f6; }
+    .tab-active { background: #3b82f6; color: white; }
+    .tab-inactive { background: #334155; color: #94a3b8; }
+    .spinner { border: 3px solid #334155; border-top-color: #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 0.8s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fade-in { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- 顶栏 -->
+  <header class="border-b border-slate-700 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">🤖</span>
+      <h1 class="text-xl font-bold">CSQAQ 盯盘系统</h1>
+    </div>
+    <div class="flex items-center gap-4">
+      <span id="lastUpdate" class="text-sm text-slate-400"></span>
+      <button onclick="refreshAll()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition">刷新</button>
+    </div>
+  </header>
+
+  <div class="max-w-7xl mx-auto px-6 py-6">
+
+    <!-- Tab 切换 -->
+    <div class="flex gap-2 mb-6">
+      <button id="tabIndex" onclick="switchTab('index')" class="px-5 py-2 rounded-lg text-sm font-medium transition tab-active">📊 大盘指数</button>
+      <button id="tabRank" onclick="switchTab('rank')" class="px-5 py-2 rounded-lg text-sm font-medium transition tab-inactive">🏆 排行榜</button>
+      <button id="tabRecommend" onclick="switchTab('recommend')" class="px-5 py-2 rounded-lg text-sm font-medium transition tab-inactive">🤖 AI 选品</button>
+      <button id="tabSearch" onclick="switchTab('search')" class="px-5 py-2 rounded-lg text-sm font-medium transition tab-inactive">🔍 饰品搜索</button>
+    </div>
+
+    <!-- ═══════════ 大盘指数 ═══════════ -->
+    <div id="panelIndex" class="fade-in">
+
+      <!-- 顶栏数据卡片 -->
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div class="card p-4 text-center">
+          <div class="text-xs text-slate-400 mb-1">👥 当前在线</div>
+          <div id="statOnline" class="text-xl font-bold text-white">—</div>
+        </div>
+        <div class="card p-4 text-center">
+          <div class="text-xs text-slate-400 mb-1">🏔 本月峰值</div>
+          <div id="statPeak" class="text-xl font-bold text-white">—</div>
+        </div>
+        <div class="card p-4 text-center">
+          <div class="text-xs text-slate-400 mb-1">📈 今日上涨</div>
+          <div id="statUp" class="text-xl font-bold up">—</div>
+        </div>
+        <div class="card p-4 text-center">
+          <div class="text-xs text-slate-400 mb-1">📉 今日下跌</div>
+          <div id="statDown" class="text-xl font-bold down">—</div>
+        </div>
+        <div class="card p-4 text-center">
+          <div class="text-xs text-slate-400 mb-1">🔥 市场热度</div>
+          <div id="statHeat" class="text-xl font-bold text-yellow-400">—</div>
+        </div>
+      </div>
+
+      <!-- 品类指数表格 -->
+      <div class="card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-700 flex items-center justify-between">
+          <h2 class="font-semibold">全品类大盘指数</h2>
+          <span id="indexStatus" class="text-xs text-slate-400">加载中...</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-slate-400 text-xs border-b border-slate-700">
+                <th class="text-left px-5 py-3">品类</th>
+                <th class="text-right px-5 py-3">指数</th>
+                <th class="text-right px-5 py-3">涨跌额</th>
+                <th class="text-right px-5 py-3">涨跌幅</th>
+                <th class="text-right px-5 py-3">今日高</th>
+                <th class="text-right px-5 py-3">今日低</th>
+              </tr>
+            </thead>
+            <tbody id="indexBody">
+              <tr><td colspan="6" class="text-center py-10 text-slate-500">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════ 排行榜 ═══════════ -->
+    <div id="panelRank" class="hidden fade-in">
+      <!-- 榜单 Tab -->
+      <div class="flex flex-wrap gap-2 mb-4">
+        <button onclick="switchRank('price')" class="rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white" data-type="price">💰 价格榜</button>
+        <button onclick="switchRank('quantity')" class="rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300" data-type="quantity">📦 数量榜</button>
+        <button onclick="switchRank('lease')" class="rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300" data-type="lease">🏠 租赁榜</button>
+        <button onclick="switchRank('hot')" class="rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300" data-type="hot">🔥 热门榜</button>
+        <button onclick="switchRank('diff')" class="rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300" data-type="diff">💲 平台差价榜</button>
+        <button onclick="switchRank('supply')" class="rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300" data-type="supply">🏭 存世量榜</button>
+        <button onclick="switchRank('turnover')" class="rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300" data-type="turnover">📈 成交榜</button>
+        <button onclick="switchRank('cashout')" class="rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300" data-type="cashout">💳 挂刀套现</button>
+      </div>
+      <!-- 数据 -->
+      <div class="card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-700 flex items-center justify-between">
+          <h2 class="font-semibold" id="rankTitle">💰 价格榜</h2>
+          <span id="rankStatus" class="text-xs text-slate-400">加载中...</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-slate-400 text-xs border-b border-slate-700">
+                <th class="text-center px-3 py-3 w-12">#</th>
+                <th class="text-left px-5 py-3">饰品名称</th>
+                <th class="text-right px-5 py-3">BUFF售价</th>
+                <th class="text-right px-5 py-3">BUFF求购</th>
+                <th class="text-right px-5 py-3">24h涨跌</th>
+                <th class="text-right px-5 py-3">存世量</th>
+              </tr>
+            </thead>
+            <tbody id="rankBody">
+              <tr><td colspan="6" class="text-center py-10 text-slate-500">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════ AI 选品推荐 ═══════════ -->
+    <div id="panelRecommend" class="hidden fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold">🤖 AI 智能选品推荐</h2>
+        <button onclick="loadRecommend()" class="px-5 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition">🔄 生成推荐</button>
+      </div>
+      <p class="text-sm text-slate-400 mb-6">AI 分析大盘指数、多维度榜单、价格趋势后生成选品策略。每次点击重新生成，数据实时。</p>
+
+      <!-- 加载状态 -->
+      <div id="recommendLoading" class="hidden">
+        <div class="card p-10 text-center">
+          <div class="spinner mx-auto mb-4"></div>
+          <div class="text-slate-400">AI 正在分析市场数据并生成策略...</div>
+          <div class="text-xs text-slate-500 mt-2">（大约需要 10-20 秒）</div>
+        </div>
+      </div>
+
+      <!-- 推荐结果 -->
+      <div id="recommendResults" class="space-y-4"></div>
+
+      <!-- 原始分析 -->
+      <details class="mt-6">
+        <summary class="text-sm text-slate-400 cursor-pointer hover:text-slate-300">📋 查看原始分析数据</summary>
+        <pre id="recommendAnalysis" class="card p-4 mt-2 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto"></pre>
+      </details>
+    </div>
+
+    <!-- ═══════════ 饰品搜索 ═══════════ -->
+    <div id="panelSearch" class="hidden fade-in">
+
+      <!-- 搜索栏 -->
+      <div class="card p-4 mb-6 flex gap-3">
+        <input id="searchInput" type="text" placeholder="输入饰品名称，如：蝴蝶刀、AK-47、M4A4..."
+          class="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-400"
+          onkeydown="if(event.key==='Enter') doSearch()">
+        <button onclick="doSearch()" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition">搜索</button>
+      </div>
+
+      <!-- 搜索结果列表 -->
+      <div id="searchResults" class="card hidden mb-6">
+        <div class="px-5 py-3 border-b border-slate-700">
+          <h2 class="font-semibold" id="searchResultTitle">搜索结果</h2>
+        </div>
+        <div id="searchResultList" class="divide-y divide-slate-700 max-h-80 overflow-y-auto"></div>
+      </div>
+
+      <!-- 饰品详情 -->
+      <div id="itemDetail" class="hidden fade-in"></div>
+    </div>
+
+  </div>
+
+  <script>
+    // ── 状态 ──
+    let currentTab = 'index';
+    let prevIndexCache = {};
+    let indexTimer = null;
+    let currentRankType = 'price';
+
+    // ── Tab 切换 ──
+    function switchTab(tab) {
+      currentTab = tab;
+      ['Index','Rank','Recommend','Search'].forEach(name => {
+        document.getElementById('panel' + name).classList.toggle('hidden', tab !== name.toLowerCase());
+        document.getElementById('tab' + name).className =
+          tab === name.toLowerCase()
+            ? 'px-5 py-2 rounded-lg text-sm font-medium transition tab-active'
+            : 'px-5 py-2 rounded-lg text-sm font-medium transition tab-inactive';
+      });
+      if (tab === 'rank') loadRank(currentRankType);
+    }
+
+    // ── 排行榜 ──
+    const rankNames = {price:'💰 价格榜',quantity:'📦 数量榜',lease:'🏠 租赁榜',hot:'🔥 热门榜',diff:'💲 平台差价榜',supply:'🏭 存世量榜',turnover:'📈 成交榜',cashout:'💳 挂刀套现'};
+
+    function switchRank(type) {
+      currentRankType = type;
+      document.querySelectorAll('.rank-tab').forEach(btn => {
+        btn.className = btn.dataset.type === type
+          ? 'rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white'
+          : 'rank-tab px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300';
+      });
+      document.getElementById('rankTitle').textContent = rankNames[type] || type;
+      loadRank(type);
+    }
+
+    async function loadRank(type) {
+      const tbody = document.getElementById('rankBody');
+      const status = document.getElementById('rankStatus');
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center py-10"><div class="spinner"></div></td></tr>';
+
+      try {
+        const resp = await fetch('/api/rank?type=' + type);
+        const data = await resp.json();
+        const items = data.data || [];
+
+        tbody.innerHTML = '';
+        items.forEach((item, i) => {
+          const pct = item.buff_price_chg || 0;
+          const cls = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
+          const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+
+          const row = document.createElement('tr');
+          row.className = 'border-b border-slate-800 hover:bg-slate-800/50 transition cursor-pointer';
+          row.innerHTML = `
+            <td class="px-3 py-3 text-center text-slate-500">${i + 1}</td>
+            <td class="px-5 py-3">
+              <div class="font-medium">${item.name || ''}</div>
+              <div class="text-xs text-slate-500">${item.exterior_localized_name || ''} · ${item.rarity_localized_name || ''}</div>
+            </td>
+            <td class="px-5 py-3 text-right tabular-nums">¥${(item.buff_sell_price || 0).toLocaleString()}</td>
+            <td class="px-5 py-3 text-right tabular-nums">¥${(item.buff_buy_price || 0).toLocaleString()}</td>
+            <td class="px-5 py-3 text-right tabular-nums ${cls}">${arrow} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+            <td class="px-5 py-3 text-right tabular-nums text-slate-400">${(item.statistic || 0).toLocaleString()}</td>
+          `;
+          row.onclick = () => { switchTab('search'); loadItem(item.id, item.name); };
+          tbody.appendChild(row);
+        });
+
+        status.textContent = `${items.length} 条 · 更新于 ${new Date().toLocaleTimeString()}`;
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center py-10 text-red-400">加载失败: ${e.message}</td></tr>`;
+      }
+    }
+
+    // ── 大盘指数 ──
+    async function loadIndices() {
+      try {
+        const resp = await fetch('/api/indices');
+        const data = await resp.json();
+
+        if (!data.indices || data.indices.length === 0) {
+          document.getElementById('indexStatus').textContent = '暂无数据';
+          return;
+        }
+
+        // 顶栏统计
+        const on = data.online || {};
+        const rate = data.rate || {};
+        const gre = data.greedy || {};
+
+        document.getElementById('statOnline').textContent = (on.current || 0).toLocaleString();
+        document.getElementById('statPeak').textContent = (on.month_peak || 0).toLocaleString();
+        document.getElementById('statUp').textContent = (rate.day_up || 0).toLocaleString();
+        document.getElementById('statDown').textContent = (rate.day_down || 0).toLocaleString();
+
+        const heatMap = { high: '🔥 活跃', medium: '⚡ 一般', low: '❄️ 恐慌' };
+        document.getElementById('statHeat').textContent = heatMap[gre.level] || gre.label || '—';
+
+        // 品类指数表格
+        const tbody = document.getElementById('indexBody');
+        tbody.innerHTML = '';
+        for (const idx of data.indices) {
+          const pct = idx.change_pct;
+          const cls = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
+          const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
+
+          // 对比缓存
+          let mark = '';
+          const prev = prevIndexCache[idx.name];
+          if (prev) {
+            const diff = idx.value - prev.value;
+            if (diff > 0.01) mark = '<span class="up text-xs"> 🔺</span>';
+            else if (diff < -0.01) mark = '<span class="down text-xs"> 🔻</span>';
+          }
+
+          const row = document.createElement('tr');
+          row.className = 'border-b border-slate-800 hover:bg-slate-800/50 transition';
+          row.innerHTML = `
+            <td class="px-5 py-3 font-medium">${idx.name}${mark}</td>
+            <td class="px-5 py-3 text-right tabular-nums">${idx.value.toFixed(2)}</td>
+            <td class="px-5 py-3 text-right tabular-nums ${cls}">${idx.change >= 0 ? '+' : ''}${idx.change.toFixed(2)}</td>
+            <td class="px-5 py-3 text-right tabular-nums ${cls}">${arrow} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+            <td class="px-5 py-3 text-right tabular-nums text-slate-400">${idx.high ? idx.high.toFixed(2) : '—'}</td>
+            <td class="px-5 py-3 text-right tabular-nums text-slate-400">${idx.low ? idx.low.toFixed(2) : '—'}</td>
+          `;
+          tbody.appendChild(row);
+        }
+
+        // 更新缓存
+        prevIndexCache = {};
+        for (const idx of data.indices) {
+          prevIndexCache[idx.name] = { value: idx.value };
+        }
+
+        document.getElementById('indexStatus').textContent = '更新于 ' + new Date().toLocaleTimeString();
+
+      } catch (e) {
+        document.getElementById('indexStatus').textContent = '加载失败';
+        console.error(e);
+      }
+    }
+
+    // ── 饰品搜索 ──
+    async function doSearch() {
+      const q = document.getElementById('searchInput').value.trim();
+      if (!q) return;
+
+      const listDiv = document.getElementById('searchResults');
+      const listBody = document.getElementById('searchResultList');
+      const title = document.getElementById('searchResultTitle');
+
+      listDiv.classList.remove('hidden');
+      title.textContent = '搜索中...';
+      listBody.innerHTML = '<div class="py-8 text-center"><div class="spinner"></div></div>';
+
+      try {
+        const resp = await fetch('/api/search?q=' + encodeURIComponent(q));
+        const data = await resp.json();
+        const results = data.results || [];
+
+        title.textContent = `搜索 "${q}" — 找到 ${results.length} 个结果`;
+        listBody.innerHTML = '';
+
+        for (const item of results.slice(0, 20)) {
+          const row = document.createElement('div');
+          row.className = 'px-5 py-3 hover:bg-slate-700/50 cursor-pointer transition flex items-center justify-between';
+          row.innerHTML = `
+            <span>${item.value}</span>
+            <span class="text-xs text-slate-500">ID: ${item.id}</span>
+          `;
+          row.onclick = () => loadItem(item.id, item.value);
+          listBody.appendChild(row);
+        }
+      } catch (e) {
+        title.textContent = '搜索失败';
+        listBody.innerHTML = `<div class="py-8 text-center text-red-400">${e.message}</div>`;
+      }
+    }
+
+    // ── 饰品详情 ──
+    async function loadItem(itemId, itemName) {
+      const div = document.getElementById('itemDetail');
+      div.classList.remove('hidden');
+      div.innerHTML = `<div class="card p-10 text-center"><div class="spinner"></div><div class="mt-3 text-slate-400">加载 "${itemName}" 的数据...</div></div>`;
+
+      try {
+        const resp = await fetch('/api/item/' + itemId);
+        const data = await resp.json();
+
+        if (data.error) {
+          div.innerHTML = `<div class="card p-6 text-red-400">❌ ${data.error}</div>`;
+          return;
+        }
+
+        const d = data.detail || {};
+        const c = data.chart || {};
+        const prices = c.prices || [];
+        const timestamps = c.timestamps || [];
+
+        // 构建详情 HTML
+        const rate24 = d.sell_price_rate_1;
+        const rate7 = d.sell_price_rate_7;
+        const rate15 = d.sell_price_rate_15;
+        const rate30 = d.sell_price_rate_30;
+
+        const rateClass = (v) => v > 0 ? 'up' : v < 0 ? 'down' : 'flat';
+        const rateArrow = (v) => v > 0 ? '▲' : v < 0 ? '▼' : '—';
+
+        // 价格走势 sparkline
+        let sparkSvg = '';
+        if (prices.length > 1) {
+          const minP = Math.min(...prices);
+          const maxP = Math.max(...prices);
+          const range = maxP - minP || 1;
+          const w = 600, h = 80, pad = 4;
+          const pts = prices.map((p, i) => {
+            const x = pad + (i / (prices.length - 1)) * (w - pad * 2);
+            const y = h - pad - ((p - minP) / range) * (h - pad * 2);
+            return `${x},${y}`;
+          }).join(' ');
+          sparkSvg = `
+            <svg viewBox="0 0 ${w} ${h}" class="w-full h-20 mt-3">
+              <polyline points="${pts}" fill="none" stroke="#3b82f6" stroke-width="2"/>
+              <circle cx="${pts.split(' ').pop().split(',')[0]}" cy="${pts.split(' ').pop().split(',')[1]}" r="4" fill="#ef4444"/>
+            </svg>
+            <div class="flex justify-between text-xs text-slate-500 mt-1">
+              <span>${prices.length} 个数据点</span>
+              <span>最低 ¥${minP.toLocaleString()} → 最高 ¥${maxP.toLocaleString()}</span>
+            </div>`;
+        }
+
+        div.innerHTML = `
+          <div class="card overflow-hidden">
+            <!-- 标题栏 -->
+            <div class="px-6 py-4 border-b border-slate-700 bg-slate-800/50">
+              <div class="flex items-center gap-3">
+                <button onclick="document.getElementById('itemDetail').classList.add('hidden')" class="text-slate-400 hover:text-white transition">← 返回</button>
+                <div>
+                  <h2 class="text-lg font-bold">${d.name || itemName}</h2>
+                  <div class="text-xs text-slate-400">${d.market_hash_name || ''} · ${d.type_localized_name || ''}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <!-- 左栏：价格 -->
+              <div>
+                <h3 class="text-sm text-slate-400 mb-3">💰 各平台价格</h3>
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="text-slate-500 text-xs border-b border-slate-700">
+                      <th class="text-left pb-2">平台</th>
+                      <th class="text-right pb-2">售价</th>
+                      <th class="text-right pb-2">求购价</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${d.buff_sell_price ? `<tr class="border-b border-slate-800"><td class="py-2 font-medium">BUFF</td><td class="py-2 text-right tabular-nums">¥${d.buff_sell_price.toLocaleString()}</td><td class="py-2 text-right tabular-nums">¥${d.buff_buy_price.toLocaleString()}</td></tr>` : ''}
+                    ${d.yyyp_sell_price ? `<tr class="border-b border-slate-800"><td class="py-2 font-medium">悠悠有品</td><td class="py-2 text-right tabular-nums">¥${d.yyyp_sell_price.toLocaleString()}</td><td class="py-2 text-right tabular-nums">¥${d.yyyp_buy_price.toLocaleString()}</td></tr>` : ''}
+                    ${d.steam_sell_price ? `<tr class="border-b border-slate-800"><td class="py-2 font-medium">Steam</td><td class="py-2 text-right tabular-nums">¥${d.steam_sell_price.toLocaleString()}</td><td class="py-2 text-right tabular-nums">¥${d.steam_buy_price.toLocaleString()}</td></tr>` : ''}
+                  </tbody>
+                </table>
+
+                <!-- 流通量 -->
+                <div class="mt-4 text-xs text-slate-400">
+                  📦 BUFF在售 ${d.buff_sell_num || 0} · BUFF求购 ${d.buff_buy_num || 0} · 悠悠在售 ${d.yyyp_sell_num || 0}
+                </div>
+              </div>
+
+              <!-- 右栏：涨跌 -->
+              <div>
+                <h3 class="text-sm text-slate-400 mb-3">📊 近期涨跌幅</h3>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="card p-3 text-center">
+                    <div class="text-xs text-slate-500">24h</div>
+                    <div class="text-lg font-bold ${rateClass(rate24)}">${rateArrow(rate24)} ${rate24 >= 0 ? '+' : ''}${(rate24||0).toFixed(2)}%</div>
+                  </div>
+                  <div class="card p-3 text-center">
+                    <div class="text-xs text-slate-500">7天</div>
+                    <div class="text-lg font-bold ${rateClass(rate7)}">${rateArrow(rate7)} ${rate7 >= 0 ? '+' : ''}${(rate7||0).toFixed(2)}%</div>
+                  </div>
+                  <div class="card p-3 text-center">
+                    <div class="text-xs text-slate-500">15天</div>
+                    <div class="text-lg font-bold ${rateClass(rate15)}">${rateArrow(rate15)} ${rate15 >= 0 ? '+' : ''}${(rate15||0).toFixed(2)}%</div>
+                  </div>
+                  <div class="card p-3 text-center">
+                    <div class="text-xs text-slate-500">30天</div>
+                    <div class="text-lg font-bold ${rateClass(rate30)}">${rateArrow(rate30)} ${rate30 >= 0 ? '+' : ''}${(rate30||0).toFixed(2)}%</div>
+                  </div>
+                </div>
+
+                <!-- 走势图 -->
+                <div class="mt-4">
+                  <h3 class="text-sm text-slate-400 mb-1">📈 近30天走势</h3>
+                  ${sparkSvg || '<div class="text-slate-500 text-sm">暂无走势数据</div>'}
+                </div>
+              </div>
+            </div>
+          </div>`;
+      } catch (e) {
+        div.innerHTML = `<div class="card p-6 text-red-400">❌ 加载失败: ${e.message}</div>`;
+      }
+    }
+
+    // ── AI 选品推荐 ──
+    async function loadRecommend() {
+      const loading = document.getElementById('recommendLoading');
+      const results = document.getElementById('recommendResults');
+      const analysis = document.getElementById('recommendAnalysis');
+
+      loading.classList.remove('hidden');
+      results.innerHTML = '';
+      analysis.textContent = '';
+
+      try {
+        const resp = await fetch('/api/recommend');
+        const data = await resp.json();
+
+        loading.classList.add('hidden');
+
+        if (data.error) {
+          results.innerHTML = `<div class="card p-6 text-red-400">❌ ${data.error}</div>`;
+          return;
+        }
+
+        // 显示推荐卡片
+        const recs = data.recommendations || [];
+        for (const rec of recs) {
+          const strengthColor = {
+            '强': 'text-red-400 bg-red-400/10',
+            '中': 'text-yellow-400 bg-yellow-400/10',
+            '弱': 'text-slate-400 bg-slate-400/10',
+          }[rec.signal_strength] || 'text-slate-400 bg-slate-400/10';
+
+          const strategyColor = {
+            '买入': 'text-red-400',
+            '观望': 'text-yellow-400',
+            '套利': 'text-green-400',
+          }[rec.strategy] || 'text-blue-400';
+
+          results.innerHTML += `
+            <div class="card p-5 fade-in">
+              <div class="flex items-start justify-between mb-3">
+                <div>
+                  <h3 class="text-lg font-bold">${rec.name || '—'}</h3>
+                  <div class="flex items-center gap-2 mt-1">
+                    <span class="text-sm font-medium ${strategyColor}">${rec.strategy || '—'}</span>
+                    <span class="text-xs px-2 py-0.5 rounded ${strengthColor}">信号: ${rec.signal_strength || '—'}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="space-y-2 text-sm">
+                <div>
+                  <span class="text-slate-400">📌 理由：</span>
+                  <span class="text-slate-200">${rec.reason || '—'}</span>
+                </div>
+                <div>
+                  <span class="text-slate-400">🎯 目标价位：</span>
+                  <span class="text-green-400 font-medium">${rec.target_price || '—'}</span>
+                </div>
+                <div>
+                  <span class="text-slate-400">⚠️ 风险：</span>
+                  <span class="text-orange-300">${rec.risk || '—'}</span>
+                </div>
+              </div>
+            </div>`;
+        }
+
+        // 显示原始分析
+        if (data.analysis) {
+          analysis.textContent = data.analysis;
+        }
+
+      } catch (e) {
+        loading.classList.add('hidden');
+        results.innerHTML = `<div class="card p-6 text-red-400">❌ 请求失败: ${e.message}</div>`;
+      }
+    }
+
+    // ── 刷新 ──
+    function refreshAll() {
+      if (currentTab === 'index') loadIndices();
+      if (currentTab === 'rank') loadRank(currentRankType);
+    }
+
+    // ── 启动 ──
+    loadIndices();
+    indexTimer = setInterval(() => { if (currentTab === 'index') loadIndices(); }, 60000);
+  </script>
+</body>
+</html>
