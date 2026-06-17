@@ -140,18 +140,26 @@
 
     <!-- ═══════════ AI 选品推荐 ═══════════ -->
     <div id="panelRecommend" class="hidden fade-in">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-bold">🤖 AI 智能选品推荐</h2>
-        <button onclick="loadRecommend()" class="px-5 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition">🔄 生成推荐</button>
+      <!-- 子 Tab -->
+      <div class="flex gap-2 mb-4">
+        <button id="subTabBuy" onclick="switchSubTab('buy')" class="px-4 py-1.5 rounded-lg text-sm font-medium bg-purple-600 text-white transition">💰 综合选品</button>
+        <button id="subTabLease" onclick="switchSubTab('lease')" class="px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300 transition">🏠 租赁选品</button>
       </div>
-      <p class="text-sm text-slate-400 mb-6">AI 分析大盘指数、多维度榜单、价格趋势后生成选品策略。每次点击重新生成，数据实时。</p>
+
+      <!-- ── 综合选品 ── -->
+      <div id="subPanelBuy">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold">💰 AI 综合选品推荐</h2>
+          <button onclick="loadRecommend()" class="px-5 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition">🔄 生成推荐</button>
+        </div>
+        <p class="text-sm text-slate-400 mb-6">AI 分析大盘指数、多维度榜单、价格趋势后生成选品策略。每次点击重新生成，数据实时。</p>
 
       <!-- 加载状态 -->
       <div id="recommendLoading" class="hidden">
         <div class="card p-10 text-center">
           <div class="spinner mx-auto mb-4"></div>
           <div class="text-slate-400">AI 正在分析市场数据并生成策略...</div>
-          <div class="text-xs text-slate-500 mt-2">（大约需要 10-20 秒）</div>
+          <div class="text-xs text-slate-500 mt-2">（大约需要 30-60 秒，AI 正在思考）</div>
         </div>
       </div>
 
@@ -163,6 +171,34 @@
         <summary class="text-sm text-slate-400 cursor-pointer hover:text-slate-300">📋 查看原始分析数据</summary>
         <pre id="recommendAnalysis" class="card p-4 mt-2 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto"></pre>
       </details>
+      </div>
+
+      <!-- ── 租赁选品 ── -->
+      <div id="subPanelLease" class="hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold">🏠 AI 租赁选品推荐</h2>
+          <button onclick="loadLeaseRecommend()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition">🔄 生成租赁推荐</button>
+        </div>
+        <p class="text-sm text-slate-400 mb-6">AI 分析租赁榜、租金收益率、供需关系、价格趋势后生成租赁投资策略。考虑投资回报比与风险。</p>
+
+        <!-- 加载状态 -->
+        <div id="leaseLoading" class="hidden">
+          <div class="card p-10 text-center">
+            <div class="spinner mx-auto mb-4"></div>
+            <div class="text-slate-400">AI 正在分析租赁数据并生成策略...</div>
+            <div class="text-xs text-slate-500 mt-2">（大约需要 15-30 秒）</div>
+          </div>
+        </div>
+
+        <!-- 推荐结果 -->
+        <div id="leaseResults" class="space-y-4"></div>
+
+        <!-- 原始分析 -->
+        <details class="mt-6">
+          <summary class="text-sm text-slate-400 cursor-pointer hover:text-slate-300">📋 查看原始租赁分析数据</summary>
+          <pre id="leaseAnalysis" class="card p-4 mt-2 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto"></pre>
+        </details>
+      </div>
     </div>
 
     <!-- ═══════════ 饰品搜索 ═══════════ -->
@@ -210,6 +246,18 @@
       if (tab === 'rank') loadRank(currentRankType);
     }
 
+    // ── 子 Tab 切换（综合选品/租赁选品）──
+    function switchSubTab(sub) {
+      document.getElementById('subPanelBuy').classList.toggle('hidden', sub !== 'buy');
+      document.getElementById('subPanelLease').classList.toggle('hidden', sub !== 'lease');
+      document.getElementById('subTabBuy').className = sub === 'buy'
+        ? 'px-4 py-1.5 rounded-lg text-sm font-medium bg-purple-600 text-white transition'
+        : 'px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300 transition';
+      document.getElementById('subTabLease').className = sub === 'lease'
+        ? 'px-4 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 text-white transition'
+        : 'px-4 py-1.5 rounded-lg text-sm font-medium bg-slate-700 text-slate-300 transition';
+    }
+
     // ── 排行榜 ──
     const rankNames = {price:'💰 价格榜',quantity:'📦 数量榜',lease:'🏠 租赁榜',hot:'🔥 热门榜',diff:'💲 平台差价榜',supply:'🏭 存世量榜',turnover:'📈 成交榜',cashout:'💳 挂刀套现'};
 
@@ -242,18 +290,21 @@
 
           const row = document.createElement('tr');
           row.className = 'border-b border-slate-800 hover:bg-slate-800/50 transition cursor-pointer';
+          const subLine = [item.exterior_localized_name, item.rarity_localized_name].filter(Boolean).join(' · ');
           row.innerHTML = `
             <td class="px-3 py-3 text-center text-slate-500">${i + 1}</td>
             <td class="px-5 py-3">
               <div class="font-medium">${item.name || ''}</div>
-              <div class="text-xs text-slate-500">${item.exterior_localized_name || ''} · ${item.rarity_localized_name || ''}</div>
+              ${subLine ? `<div class="text-xs text-slate-500">${subLine}</div>` : ''}
             </td>
             <td class="px-5 py-3 text-right tabular-nums">¥${(item.buff_sell_price || 0).toLocaleString()}</td>
             <td class="px-5 py-3 text-right tabular-nums">¥${(item.buff_buy_price || 0).toLocaleString()}</td>
             <td class="px-5 py-3 text-right tabular-nums ${cls}">${arrow} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
             <td class="px-5 py-3 text-right tabular-nums text-slate-400">${(item.statistic || 0).toLocaleString()}</td>
           `;
-          row.onclick = () => { switchTab('search'); loadItem(item.id, item.name); };
+          if (item.id) {
+            row.onclick = () => { switchTab('search'); loadItem(item.id, item.name); };
+          }
           tbody.appendChild(row);
         });
 
@@ -516,6 +567,9 @@
 
         // 显示推荐卡片
         const recs = data.recommendations || [];
+        if (recs.length === 0) {
+          results.innerHTML = `<div class="card p-6 text-center text-slate-400">AI 分析完成，暂未生成推荐。请稍后重试或检查 LLM 配置。</div>`;
+        }
         for (const rec of recs) {
           const strengthColor = {
             '强': 'text-red-400 bg-red-400/10',
@@ -558,6 +612,91 @@
         }
 
         // 显示原始分析
+        if (data.analysis) {
+          analysis.textContent = data.analysis;
+        }
+
+      } catch (e) {
+        loading.classList.add('hidden');
+        results.innerHTML = `<div class="card p-6 text-red-400">❌ 请求失败: ${e.message}</div>`;
+      }
+    }
+
+    // ── 租赁选品推荐 ──
+    async function loadLeaseRecommend() {
+      const loading = document.getElementById('leaseLoading');
+      const results = document.getElementById('leaseResults');
+      const analysis = document.getElementById('leaseAnalysis');
+
+      loading.classList.remove('hidden');
+      results.innerHTML = '';
+      analysis.textContent = '';
+
+      try {
+        const resp = await fetch('/api/lease-recommend');
+        const data = await resp.json();
+
+        loading.classList.add('hidden');
+
+        if (data.error) {
+          results.innerHTML = `<div class="card p-6 text-red-400">❌ ${data.error}</div>`;
+          return;
+        }
+
+        const recs = data.recommendations || [];
+        if (recs.length === 0) {
+          results.innerHTML = `<div class="card p-6 text-center text-slate-400">AI 分析完成，暂未生成租赁推荐。请稍后重试或检查 LLM 配置。</div>`;
+        }
+        for (const rec of recs) {
+          const riskColor = {
+            '高': 'text-red-400 bg-red-400/10',
+            '中': 'text-yellow-400 bg-yellow-400/10',
+            '低': 'text-green-400 bg-green-400/10',
+          }[rec.risk_level] || 'text-slate-400 bg-slate-400/10';
+
+          results.innerHTML += `
+            <div class="card p-5 fade-in">
+              <div class="flex items-start justify-between mb-3">
+                <div>
+                  <h3 class="text-lg font-bold">${rec.name || '—'}</h3>
+                  <div class="flex items-center gap-2 mt-1">
+                    <span class="text-xs px-2 py-0.5 rounded bg-emerald-400/10 text-emerald-400">投入 ${rec.cost || '—'}</span>
+                    <span class="text-xs px-2 py-0.5 rounded bg-blue-400/10 text-blue-400">日租 ${rec.daily_lease || '—'}</span>
+                    <span class="text-xs px-2 py-0.5 rounded ${riskColor}">风险: ${rec.risk_level || '—'}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-3 mb-3">
+                <div class="card p-2 text-center">
+                  <div class="text-xs text-slate-500">月化收益</div>
+                  <div class="text-sm font-bold text-emerald-400">${rec.monthly_roi || '—'}%</div>
+                </div>
+                <div class="card p-2 text-center">
+                  <div class="text-xs text-slate-500">日租金</div>
+                  <div class="text-sm font-bold text-blue-400">${rec.daily_lease || '—'}</div>
+                </div>
+                <div class="card p-2 text-center">
+                  <div class="text-xs text-slate-500">投入成本</div>
+                  <div class="text-sm font-bold text-white">${rec.cost || '—'}</div>
+                </div>
+              </div>
+              <div class="space-y-2 text-sm">
+                <div>
+                  <span class="text-slate-400">📌 理由：</span>
+                  <span class="text-slate-200">${rec.reason || '—'}</span>
+                </div>
+                <div>
+                  <span class="text-slate-400">💰 投资建议：</span>
+                  <span class="text-emerald-300">${rec.advice || '—'}</span>
+                </div>
+                <div>
+                  <span class="text-slate-400">⚠️ 风险：</span>
+                  <span class="text-orange-300">${rec.risk || '—'}</span>
+                </div>
+              </div>
+            </div>`;
+        }
+
         if (data.analysis) {
           analysis.textContent = data.analysis;
         }

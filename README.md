@@ -1,63 +1,165 @@
-# 🤖 CSQAQ 多Agent盯盘系统
+# CSQAQ 多Agent盯盘系统
 
-基于 Python + LangChain + Playwright + Flask 的 CS:GO/CS2 饰品市场监控系统，支持大盘指数轮询、排行榜展示、饰品价格搜索、走势图分析和 **AI 智能选品推荐**。
+基于 Python + LangChain + Playwright + Flask 的 CS:GO/CS2 饰品市场监控系统，6层架构，双 Agent 实时交互，接入通义千问大模型进行 AI 选品推荐。
 
 ---
+
+## 系统架构
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        入口层 (entry/)                               │
+│            CLI (cli.py)  /  Web Server (web.py)                      │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────────────┐
+│                       编排层 (orchestration/)                        │
+│  ┌─────────────────┐    ┌──────────────────┐    ┌───────────────┐  │
+│  │   Coordinator   │───▶│  CollectorAgent  │◀──▶│ AnalyzerAgent │  │
+│  │  (线程安全调度)   │    │  (Playwright采集) │    │ (LLM两阶段分析) │  │
+│  └─────────────────┘    └──────────────────┘    └───────────────┘  │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────────────┐
+│                       模型层 (models/)                               │
+│  AnalysisResult / Recommendation / CollectedData / RankItem / Item  │
+│  MarketOverview / TrendSignal / BacktestReport / CycleResult        │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────────────┐
+│                       工具层 (tools/)                                │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │ LLM Provider │  │  Providers   │  │ index_api / item_api     │  │
+│  │ Qwen/Mock    │  │ Csqaq / Mock │  │ chart_renderer / ...     │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────────┘  │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────────────┐
+│                       记忆层 (memory/)                               │
+│  RecommendationStore / PriceStore / BacktestEngine / CacheStore     │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────────────┐
+│                       观测层 (observability/)                        │
+│                        Logger / Metrics                              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Agent 通信
+
+```
+CollectorAgent ──collect_all()──▶ CollectedData ──▶ AnalyzerAgent
+      ▲                                                    │
+      │              fetch_details(names)                  │
+      ◀────────────────────────────────────────────────────┘
+                     (双向实时交互)
+```
+
+- **CollectorAgent**: 采集大盘指数 + 多维度榜单（Playwright）
+- **AnalyzerAgent**: 两阶段 LLM 分析：
+  1. 第一阶段：分析市场数据，输出 `DATA_NEEDS: 饰品A, 饰品B`
+  2. 按需从 CollectorAgent 获取详情数据
+  3. 第二阶段：结合补充数据，生成最终 JSON 推荐
+
+### T+7 结算机制
+
+系统自动考虑 Buff 平台的 **T+7 结算规则**（卖出后资金锁定 7 天到账）：
+- 短线策略（< 7 天快进快出）被标记为高风险，因资金无法快速周转
+- "买入"推荐仅当预期持有期 > 7 天且趋势看涨时给出
+- 套利策略会评估 7 天锁仓期的价格反向波动风险
+- LLM prompt 中内置 T+7 约束，每次推荐都自动考量
 
 ## 功能概览
 
 | 功能 | 说明 |
 |------|------|
 | 📊 大盘指数 | 实时展示 23 个品类指数，自动对比涨跌，显示在线人数/市场热度 |
-| 🏆 排行榜 | 8 大榜单：价格榜、数量榜、租赁榜、热门榜、平台差价榜、存世量榜、成交榜、挂刀套现 |
-| 🤖 AI 选品 | AI 分析多维度数据，生成选品策略、理由、风险提示、目标价位 |
+| 🏆 排行榜 | 多维度榜单：价格榜、热门榜、存世量榜、成交榜、平台差价榜等 |
+| 🤖 AI 选品 | LLM 两阶段分析：先分析 Trend Signal，再按需获取详情，生成带 T+7 风险评估的推荐 |
 | 🔍 饰品搜索 | 搜索任意饰品，查看 BUFF/悠悠有品/Steam 三平台售价+求购价、涨跌幅、30天走势 |
-| 🌐 网页界面 | 浏览器可视化看板，自动刷新，深色主题 |
-
----
+| 🌐 网页界面 | 浏览器可视化看板，深色主题，自动缓存 |
 
 ## 项目结构
 
 ```
 multi-agent-tasker/
-├── config.py                  # 全局配置（从 .env 读取）
-├── .env                       # 敏感配置（API密钥等，勿提交）
-├── .gitignore                 # Git 忽略规则
-├── main.py                    # 程序入口（CLI 菜单）
-├── README.md                  # 项目说明
+├── config.py                  # 全局配置（从 os.environ 读取）
+├── env.py                     # .env 静默加载器
+├── main.py                    # CLI 入口（→ entry.cli）
+├── logger.py                  # 结构化日志（→ observability.logger）
+├── pyproject.toml             # 项目元数据 + lint 配置
+├── requirements.txt           # 依赖锁文件
+├── Makefile                   # test/lint/clean
+├── Dockerfile                 # 容器化部署
+├── .github/workflows/         # CI/CD
+│
+├── entry/                     # 入口层
+│   ├── __init__.py
+│   ├── cli.py                 # CLI 主菜单（大盘盯盘/搜索/Web）
+│   └── web.py                 # Flask Web 服务器（8个 API 端点）
+│
+├── orchestration/             # 编排层
+│   ├── __init__.py
+│   ├── coordinator.py         # 线程安全调度器
+│   └── agents/
+│       ├── __init__.py
+│       ├── collector.py       # CollectorAgent
+│       └── analyzer.py        # AnalyzerAgent（两阶段 LLM）
+│
+├── models/                    # 模型层（纯 dataclass，零依赖）
+│   ├── __init__.py
+│   ├── analysis.py            # CycleResult, Recommendation, RankItem, etc.
+│   ├── market.py              # MarketIndex, MarketOverview, etc.
+│   ├── item.py                # Item, ChartData, SearchResult
+│   └── message.py             # DataRequest, ExtraData
+│
+├── tools/                     # 工具层
+│   ├── __init__.py
+│   ├── llm.py                 # LLMProvider / QwenLLMProvider / MockLLMProvider
+│   ├── index_api.py           # 指数采集（requests）
+│   ├── item_api.py            # 饰品搜索/详情（Playwright）
+│   ├── chart_renderer.py      # 走势图渲染
+│   ├── web_request.py         # 通用 HTTP 请求
+│   └── providers/             # Provider 接口 + 实现
+│       ├── __init__.py
+│       ├── interfaces.py      # IndexProvider / RankProvider / SearchProvider
+│       ├── csqaq.py           # CsqaqIndex / CsqaqRank / CsqaqSearch
+│       └── mock.py            # MockIndex / MockRank / MockSearch
+│
+├── memory/                    # 记忆层
+│   ├── __init__.py
+│   ├── recommendation_store.py # 推荐记录持久化
+│   ├── price_store.py         # 价格快照
+│   ├── backtest_engine.py     # 回测引擎（命中率计算）
+│   └── cache_store.py         # 缓存层
+│
+├── observability/             # 观测层
+│   ├── __init__.py
+│   └── logger.py              # 结构化日志（替代 print）
+│
+├── providers/                 # （旧接口, 保留兼容）→ tools.providers
+├── storage/                   # （旧存储, 保留兼容）→ memory
+├── agents/                    # （旧 Agent, 保留兼容）→ orchestration.agents
+│
 ├── web/
-│   ├── app.py                 # Flask Web 服务器
+│   ├── app.py                 # （旧入口, 保留兼容）→ entry.web
 │   └── templates/
-│       └── index.html         # 网页前端（大盘/排行榜/AI选品/搜索）
-├── cache/
-│   ├── __init__.py
-│   ├── data_cache.py          # 本地数据缓存模块
-│   ├── data_cache.json        # 饰品数据缓存（自动生成）
-│   └── index_cache.json       # 大盘指数缓存（自动生成）
-├── tools/
-│   ├── __init__.py
-│   ├── web_request.py         # 网页请求工具（Playwright）
-│   ├── index_api.py           # 大盘指数 API（requests 直调）
-│   ├── item_api.py            # 饰品搜索/详情 API（Playwright）
-│   ├── chart_renderer.py      # 终端价格走势图渲染（Sparkline）
-│   └── recommend.py           # 🤖 AI 选品推荐引擎
-└── agents/                    # 多 Agent 模块（扩展用）
-    ├── __init__.py
-    ├── planner_agent.py       # 总控规划 Agent
-    ├── crawler_agent.py       # 数据爬取 Agent
-    ├── parser_agent.py        # 数据解析 Agent
-    ├── judge_agent.py         # 异动研判 Agent
-    └── notice_agent.py        # 消息提醒 Agent
+│       └── index.html         # 前端（深色主题, Tailwind CSS）
+│
+└── tests/                     # 测试（27 个用例，全部通过）
+    ├── conftest.py
+    ├── test_agents.py
+    ├── test_models.py
+    ├── test_orchestrator.py
+    └── test_providers.py
 ```
-
----
 
 ## 安装步骤
 
 ### 1. 安装 Python 依赖
 
 ```bash
-pip install langchain langchain-community dashscope python-dotenv requests playwright flask
+pip install -r requirements.txt
 ```
 
 ### 2. 安装 Playwright 浏览器
@@ -66,205 +168,93 @@ pip install langchain langchain-community dashscope python-dotenv requests playw
 playwright install chromium
 ```
 
-> 如果下载慢，可设置镜像：
-> ```bash
-> PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright playwright install chromium
-> ```
+如果下载慢，可设置镜像：
+```bash
+PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright playwright install chromium
+```
 
 ### 3. 配置 API 密钥
 
-在项目根目录创建 `.env` 文件（已创建好模板）：
-
 ```bash
-# 编辑 .env，填入你的阿里云百炼 API 密钥
-vim .env
+cp .env.example .env
 ```
 
-内容：
-```
+编辑 `.env`：
+
+```ini
 DASHSCOPE_API_KEY=你的阿里云百炼API密钥
+LLM_MODEL=qwen-max
+MONITOR_URL=https://csqaq.com
+POLL_INTERVAL_SECONDS=300
 ```
-
-或者通过环境变量设置：
-```bash
-export DASHSCOPE_API_KEY='你的密钥'
-```
-
-> API 密钥从 [阿里云百炼控制台](https://bailian.console.aliyun.com/) 获取。
-
----
 
 ## 使用方法
 
-### 启动程序
+### Web 界面（推荐）
 
 ```bash
-cd multi-agent-tasker
-python main.py
-```
-
-### 主菜单
-
-```
-  ╔══════════════════════════════════╗
-  ║         主菜单                   ║
-  ╠══════════════════════════════════╣
-  ║  1. 大盘指数盯盘                 ║
-  ║  2. 搜索饰品价格                 ║
-  ║  3. 启动网页界面                 ║
-  ║  exit → 退出                     ║
-  ╚══════════════════════════════════╝
-```
-
----
-
-### 模式 1：大盘指数盯盘（终端）
-
-定时轮询 csqaq.com 全品类指数，对比缓存数据，涨跌标红标绿。
-
-```
-╔════════════════════════════════════════════════════════════╗
-║ 👥 在线  1,491,883                                       🔥 活跃 ║
-║ 🏔 本月峰值  1,492,812  |  月活跃 31,361,348       📈 5137  📉 11153 ║
-╠════════════════════════════════════════════════════════════╣
-║  饰品指数          1570.33     -36.65   -2.28% ▼           ║
-║  租赁指数           570.64      -4.87   -0.85% ▼           ║
-║  匕首指数           511.94      +1.10   +0.22% ▲           ║
-║  ... 共 23 个品类 ...                                      ║
-╚════════════════════════════════════════════════════════════╝
-```
-
-- 输入 `exit` 返回主菜单
-- 轮询间隔在 `.env` 中设置：`POLL_INTERVAL_SECONDS=300`
-
----
-
-### 模式 2：搜索饰品价格（终端）
-
-```
-请输入饰品名称: 蝴蝶刀
-
-找到 51 个匹配结果:
-  1. 蝴蝶刀（★）
-  2. 蝴蝶刀（★） | 蓝钢 (战痕累累)
-  ...
-
-序号: 1
-
-==================================================
-  🗡️  蝴蝶刀（★） 原皮
-==================================================
-  🔴 BUFF 售价: ¥8,175
-  🟡 悠悠有品售价: ¥8,096
-  🔵 Steam 售价: ¥12,556
-  📈 24h: +0.49%  7天: -2.97%  30天: -12.94%
-  📈 近30天走势图 (Sparkline)
-```
-
----
-
-### 模式 3：网页界面（推荐）
-
-```bash
-python main.py → 选 3
+python entry/web.py
 ```
 
 浏览器打开 `http://localhost:8080`
 
-网页界面包含 4 个 Tab：
+### CLI 模式
 
-#### 📊 大盘指数
-- 当前在线人数 / 本月峰值 / 月活跃用户
-- 市场热度（🔥活跃 / ❄️恐慌）
-- 今日涨跌商品统计
-- 23 个品类指数表格，涨跌自动标红标绿
+```bash
+python main.py
+```
 
-#### 🏆 排行榜
-8 大榜单，点击饰品可跳转详情：
-| 榜单 | 说明 |
-|------|------|
-| 💰 价格榜 | 24h 涨幅最大的饰品 |
-| 📦 数量榜 | 在售数量最多的饰品 |
-| 🏠 租赁榜 | 租金最高的饰品 |
-| 🔥 热门榜 | 浏览量最高的饰品 |
-| 💲 平台差价榜 | BUFF 售价与求购价差最大的饰品 |
-| 🏭 存世量榜 | 存世量最少的饰品 |
-| 📈 成交榜 | Steam 成交量最大的饰品 |
-| 💳 挂刀套现 | Steam 求购挂刀性价比最高的饰品 |
+主菜单 → 选 `1` 大盘盯盘 / `2` 搜索 / `3` 启动网页界面
 
-#### 🤖 AI 选品
-- 点击「生成推荐」，AI 自动采集大盘 + 多维度榜单数据
-- 通义千问分析后生成 3-5 个推荐
-- 每个推荐包含：策略（买入/观望/套利）、理由、目标价位、风险提示、信号强度
-- 可展开查看原始分析数据
+### 运行测试
 
-#### 🔍 饰品搜索
-- 输入关键词搜索
-- 查看 BUFF / 悠悠有品 / Steam 三平台售价+求购价
-- 24h / 7天 / 15天 / 30天涨跌幅
-- 近30天价格走势图（SVG）
-- 在售/求购数量
+```bash
+pytest tests/ -q
+# 全部 27 个用例通过
+```
 
----
+## API 端点
+
+| 端点 | 说明 | 缓存 |
+|------|------|------|
+| `GET /` | 网页主界面 | — |
+| `GET /api/indices` | 大盘指数数据 | — |
+| `GET /api/rank?type=price` | 排行榜（price/hot/supply/turnover/diff） | 5分钟 |
+| `GET /api/recommend` | AI 选品推荐 | 5分钟 |
+| `GET /api/lease-recommend` | AI 租赁推荐 | 5分钟 |
+| `GET /api/search?q=` | 搜索饰品 | — |
+| `GET /api/item/<id>` | 饰品详情 + 走势图 | — |
+| `GET /api/backtest` | 回测报告 | — |
+| `GET /api/cycle` | 轮询状态 | — |
 
 ## 配置说明
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DASHSCOPE_API_KEY` | 阿里云百炼 API 密钥 | 必填 |
-| `LLM_MODEL` | 大模型名称 | `qwen-turbo` |
+| `LLM_MODEL` | 大模型名称 | `qwen-max` |
+| `LLM_TEMPERATURE` | 模型温度 | `0.7` |
 | `MONITOR_URL` | 监控目标网址 | `https://csqaq.com` |
 | `POLL_INTERVAL_SECONDS` | 轮询间隔（秒） | `300` |
 
----
+## 回测
 
-## 依赖
-
-| 包 | 用途 |
-|------|------|
-| `langchain` | LLM 框架 |
-| `langchain-community` | 通义千问 LLM 集成 |
-| `dashscope` | 阿里云百炼 SDK |
-| `python-dotenv` | 加载 .env 配置 |
-| `requests` | HTTP 请求（大盘指数） |
-| `playwright` | 无头浏览器（抓取 SPA 页面、排行榜、搜索） |
-| `flask` | Web 服务器 |
-
----
-
-## 硬件要求
-
-| 场景 | 最低配置 | 推荐配置 |
-|------|---------|---------|
-| 个人使用 | 8GB 内存 + 2核 CPU | 16GB 内存 |
-| 3-5 人 | 部署到云服务器 | 2核4G 云服务器 + Docker |
-| 更多用户 | 加 Redis 缓存 + 浏览器池 | 4核8G 云服务器 |
-
-> 每次搜索/排行榜请求会启动一个 Chromium 实例（约 300-400MB 内存），并发高时需要更多内存。
-
----
+系统自动记录每次 AI 推荐，持续跟踪推荐后价格变化。回测引擎计算各策略（买入/观望/套利）的历史命中率。
 
 ## 常见问题
 
-**Q: Port 5000 is in use**
-> macOS 的 AirPlay 占用 5000 端口，已改为 8080。
+**Q: Port 8080 is in use**
+> ```bash
+> lsof -ti:8080 | xargs kill -9
+> ```
 
-**Q: 搜索/排行榜返回空数据**
-> 首次加载可能需要几秒（Playwright 启动浏览器），请耐心等待。
-
-**Q: AI 选品返回 API 错误**
-> 请确保 `.env` 中的 `DASHSCOPE_API_KEY` 是有效的阿里云百炼密钥。
+**Q: AI 推荐返回 0 条**
+> 确保 `DASHSCOPE_API_KEY` 有效且 `LLM_MODEL=qwen-max`。首次调用约 30-60 秒（两个阶段 LLM + Playwright 采集）。
 
 **Q: playwright install chromium 下载慢**
-> 设置镜像源：
 > ```bash
 > PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright playwright install chromium
 > ```
-
-**Q: 内存不够用**
-> 关闭 PyCharm、IDE 等大内存应用，或部署到云服务器。
-
----
 
 ## License
 
